@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+body {
+  font-family: 'Proxima Nova', sans-serif;
+}
+
+.g-intro {
+  font-size: 16px;
+  margin: 0px 0px 10px 0px;
+}
+
+.states {
+  fill: #d3d3d3;
+  stroke: #ffffff;
+  stroke-linejoin: round;
+}
+
+.q0-9 { fill: #d9e0f2; }
+.q1-9 { fill: #99b2dc; }
+.q2-9 { fill: #5e8dc9; }
+.q3-9 { fill: #2f5491; }
+.q4-9 { fill: #0e2344; }
+
+#q0-9 { background-color: #d9e0f2; }
+#q1-9 { background-color: #99b2dc; }
+#q2-9 { background-color: #5e8dc9; }
+#q3-9 { background-color: #2f5491; }
+#q4-9 { background-color: #0e2344; }
+
+div.tooltip {
+  position: absolute;
+  left: 75px;
+  text-align: center;
+  height: 12px;
+  padding: 8px;
+  font-size: 13px;
+  font-family: 'Proxima-Nova', sans-serif;
+  background: #FFFFFF;
+  border: 1px solid #989898;
+  pointer-events: none;
+}
+
+.block {
+  width:18%;
+  height: 15px;
+  display:inline-block;
+}
+
+
+</style>
+<body>
+  <h3 class="g-intro"></h3>
+  <div class="g-chart"></div>
+    <div class="legend">
+  </div>
+</body>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/3.5.5/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/queue-async/1.0.7/queue.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/1.6.19/topojson.min.js"></script>
+
+<script>
+
+var myData;
+
+//Creates tooltip and makes it invisiblae
+var div = d3.select("body").append("div")
+  .attr("class", "tooltip")
+  .style("opacity", 0);
+
+//Sets dimensions
+var margin = {top: 10, left: 10, bottom: 10, right: 10}
+  , width = window.outerWidth
+  , width = width - margin.left - margin.right
+  , mapRatio = .5
+  , height = width * mapRatio;
+
+//Tells the map what projection to use
+var projection = d3.geo.albersUsa()
+    .scale(width)
+    .translate([width / 2, height / 2]);
+
+//Tells the map how to draw the paths from the projection
+var path = d3.geo.path()
+    .projection(projection);
+
+//Appened svg to page
+var map = d3.select(".g-chart").append("svg")
+  .style('height', height + 'px')
+  .style('width', width + 'px');
+
+//Load the files
+queue()
+    .defer(d3.json, "https://raw.githubusercontent.com/madhuripawle/homework4/master/us-10m.json")
+    .defer(d3.csv, "https://raw.githubusercontent.com/madhuripawle/homework4/master/losses2015_transformed.csv")
+    .await(ready);
+	d3.csv("https://raw.githubusercontent.com/madhuripawle/homework4/master/losses2015_transformed.csv", function(error, data) {
+  	if (error) throw error;
+
+data.forEach(function(d) {
+      d.State_Code = d.State_Code;
+      d.Amount = +d.Amount;
+
+  });
+
+	 myData = d3.nest()
+	  .key(function(d){
+	    return d.State_Code;
+	  }).sortKeys(d3.descending)
+
+	  .rollup(function(amount){
+	 		return d3.sum(amount, function(d) {return (d.Amount)});
+		})
+	  .entries(data)
+	  console.log(myData);
+	  });
+
+//Moves selection to front
+d3.selection.prototype.moveToFront = function() {
+  return this.each(function(){
+    this.parentNode.appendChild(this);
+  });
+};
+
+//Moves selection to back
+d3.selection.prototype.moveToBack = function() {
+  return this.each(function() {
+  var firstChild = this.parentNode.firstChild;
+    if (firstChild) {
+      this.parentNode.insertBefore(this, firstChild);
+    }
+  });
+};
+
+function ready(error, us, usMap) {
+  if (error) throw error;
+
+  console.log(us, usMap);
+
+  //Sets color scale
+  var amtMedian = d3.max(usMap, function(d) { return d.Amount;});
+  var quantize = d3.scale.quantize()
+    .domain([amtMedian,200000000 ])
+    .range(d3.range(4).map(function(i) { return "q" + i + "-9"; }));
+
+  //Pair data with state id
+  var dataByState = {};
+  myData.forEach(function(d) {
+  dataByState[d.key] =+d.values; });
+
+  console.log("Data state data !!!"+JSON.stringify(myData)+JSON.stringify(dataByState));
+
+  //Pair state name with state id
+  var stateByName = {};
+  usMap.forEach(function(d) { stateByName[d.State_Code] = d.State_Abv; });
+  console.log(stateByName);
+
+  //Appends chart intro text
+  d3.select(".g-intro").text("Losses 2015 [$] Damage Type : All");
+
+  //Append states
+  map.append("g")
+    .attr("class", "states")
+    .selectAll("path")
+    .data(topojson.feature(us, us.objects.states).features)
+    .enter().append("path")
+    .attr("d", path)
+    //Color states
+    .attr("class", function(d) { return quantize(dataByState[d.id]); })
+    //Hovers
+    .on("mouseover", function(d) {
+      var sel = d3.select(this);
+        sel.moveToFront();
+      d3.select(this).transition().duration(300).style("opacity", 0.8);
+      div.transition().duration(300)
+      .style("opacity", 1)
+      div.text(stateByName[d.id]+" : "+dataByState[d.id] )
+      .style("left", (d3.event.pageX) + "px")
+      .style("top", (d3.event.pageY -30) + "px");
+    })
+    .on("mouseout", function() {
+      var sel = d3.select(this);
+        sel.moveToBack();
+      d3.select(this)
+      .transition().duration(300)
+      .style("opacity", 1);
+      div.transition().duration(300)
+      .style("opacity", 0);
+    });
+}
+</script>
